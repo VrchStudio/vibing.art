@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vibing Art — AI-Generated Interactive Visuals</title>
+  <meta name="description" content="AI-generated interactive visuals that react to sound and movement. Coming soon to iOS.">
+  <meta property="og:title" content="Vibing Art — Coming Soon">
+  <meta property="og:description" content="AI-generated interactive visuals that react to sound and movement.">
+  <meta property="og:type" content="website">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #000;
+      color: #fff;
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
+      font-family: -apple-system, 'SF Pro Display', 'Helvetica Neue', system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    canvas#field {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Color wash — multiple layers for richer shifting */
+    .color-wash {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      mix-blend-mode: screen;
+    }
+
+    .wash-layer {
+      position: absolute;
+      top: -20%; left: -20%;
+      width: 140%; height: 140%;
+      opacity: 0.25;
+    }
+
+    .wash-a {
+      background:
+        radial-gradient(ellipse at 30% 35%, hsla(270, 80%, 20%, 1), transparent 50%),
+        radial-gradient(ellipse at 80% 70%, hsla(330, 70%, 15%, 1), transparent 50%);
+      animation: driftA 30s ease-in-out infinite alternate;
+    }
+
+    .wash-b {
+      background:
+        radial-gradient(ellipse at 70% 25%, hsla(200, 75%, 16%, 1), transparent 50%),
+        radial-gradient(ellipse at 25% 75%, hsla(260, 65%, 14%, 1), transparent 50%);
+      animation: driftB 37s ease-in-out infinite alternate;
+    }
+
+    .wash-c {
+      background:
+        radial-gradient(ellipse at 50% 50%, hsla(310, 60%, 14%, 1), transparent 45%),
+        radial-gradient(ellipse at 20% 30%, hsla(180, 70%, 12%, 1), transparent 50%);
+      animation: driftC 43s ease-in-out infinite alternate;
+    }
+
+    @keyframes driftA {
+      0%   { transform: translate(0, 0) rotate(0deg) scale(1); }
+      50%  { transform: translate(8%, -6%) rotate(15deg) scale(1.1); }
+      100% { transform: translate(-5%, 8%) rotate(-10deg) scale(0.95); }
+    }
+
+    @keyframes driftB {
+      0%   { transform: translate(0, 0) rotate(0deg) scale(1); }
+      50%  { transform: translate(-10%, 5%) rotate(-20deg) scale(1.05); }
+      100% { transform: translate(6%, -8%) rotate(12deg) scale(1.1); }
+    }
+
+    @keyframes driftC {
+      0%   { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 0.25; }
+      33%  { transform: translate(5%, 7%) rotate(10deg) scale(1.08); opacity: 0.3; }
+      66%  { transform: translate(-7%, -4%) rotate(-15deg) scale(0.95); opacity: 0.2; }
+      100% { transform: translate(3%, -6%) rotate(8deg) scale(1.05); opacity: 0.28; }
+    }
+
+    .content {
+      position: relative;
+      z-index: 2;
+      height: 100vh;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 32px;
+      text-align: center;
+      pointer-events: none;
+    }
+
+    .title-spacer {
+      font-family: 'Instrument Serif', Georgia, serif;
+      font-size: clamp(3.75rem, 10.6vw, 7.5rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1;
+      margin-bottom: 30px;
+      visibility: hidden;
+    }
+
+    .description {
+      font-size: clamp(1.125rem, 2.25vw, 1.375rem);
+      font-weight: 400;
+      line-height: 1.7;
+      color: rgba(255, 255, 255, 0.4);
+      max-width: 575px;
+      letter-spacing: 0.005em;
+    }
+
+    .description .pocket {
+      color: rgba(255, 255, 255, 0.7);
+      font-style: italic;
+      font-family: 'Instrument Serif', Georgia, serif;
+    }
+
+    .coming-soon {
+      margin-top: 25px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.25);
+    }
+
+    .footer {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 2;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 18px 32px;
+      font-size: 0.65rem;
+      letter-spacing: 0.04em;
+      color: rgba(255, 255, 255, 0.12);
+    }
+
+    .footer a {
+      color: rgba(255, 255, 255, 0.12);
+      text-decoration: none;
+      transition: color 0.4s ease;
+    }
+
+    .footer a:hover {
+      color: rgba(255, 255, 255, 0.35);
+    }
+
+    @media (max-width: 480px) {
+      .description {
+        max-width: 375px;
+      }
+      .footer {
+        padding: 14px 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="field"></canvas>
+  <div class="color-wash">
+    <div class="wash-layer wash-a"></div>
+    <div class="wash-layer wash-b"></div>
+    <div class="wash-layer wash-c"></div>
+  </div>
+
+  <div class="content">
+    <div class="title-spacer" aria-hidden="true">Vibing Art</div>
+    <p class="description">
+      AI-generated interactive visuals that react to sound
+      and movement — <span class="pocket">right in your pocket</span>
+    </p>
+    <div class="coming-soon">Coming Soon to iOS</div>
+  </div>
+
+  <footer class="footer">
+    <span>&copy; 2026 Vrch Studio</span>
+    <a href="https://vrch.io">vrch.io</a>
+  </footer>
+
+  <script>
+    // ── Simplex noise ──
+    const F2 = 0.5 * (Math.sqrt(3) - 1);
+    const G2 = (3 - Math.sqrt(3)) / 6;
+    const grad = [[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]];
+    const perm = new Uint8Array(512);
+    const ptable = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) ptable[i] = i;
+    for (let i = 255; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [ptable[i], ptable[j]] = [ptable[j], ptable[i]];
+    }
+    for (let i = 0; i < 512; i++) perm[i] = ptable[i & 255];
+
+    function noise2D(x, y) {
+      const s = (x + y) * F2;
+      const i = Math.floor(x + s), j = Math.floor(y + s);
+      const t = (i + j) * G2;
+      const x0 = x - (i - t), y0 = y - (j - t);
+      const i1 = x0 > y0 ? 1 : 0, j1 = x0 > y0 ? 0 : 1;
+      const x1 = x0 - i1 + G2, y1 = y0 - j1 + G2;
+      const x2 = x0 - 1 + 2 * G2, y2 = y0 - 1 + 2 * G2;
+      const ii = i & 255, jj = j & 255;
+      let n0 = 0, n1 = 0, n2 = 0;
+      let t0 = 0.5 - x0 * x0 - y0 * y0;
+      if (t0 > 0) { t0 *= t0; const g = grad[perm[ii + perm[jj]] % 8]; n0 = t0 * t0 * (g[0] * x0 + g[1] * y0); }
+      let t1 = 0.5 - x1 * x1 - y1 * y1;
+      if (t1 > 0) { t1 *= t1; const g = grad[perm[ii + i1 + perm[jj + j1]] % 8]; n1 = t1 * t1 * (g[0] * x1 + g[1] * y1); }
+      let t2 = 0.5 - x2 * x2 - y2 * y2;
+      if (t2 > 0) { t2 *= t2; const g = grad[perm[ii + 1 + perm[jj + 1]] % 8]; n2 = t2 * t2 * (g[0] * x2 + g[1] * y2); }
+      return 70 * (n0 + n1 + n2);
+    }
+
+    // ── Canvas ──
+    const canvas = document.getElementById('field');
+    const ctx = canvas.getContext('2d');
+    let w, h, dpr, time = 0;
+
+    // ── Text mask (offscreen) ──
+    const maskCanvas = document.createElement('canvas');
+    const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+    let maskData = null;
+    let maskW = 0, maskH = 0;
+    let titleCenterX = 0, titleCenterY = 0;
+    let maskOriginX = 0, maskOriginY = 0;
+
+    function buildTextMask() {
+      const spacer = document.querySelector('.title-spacer');
+      const rect = spacer.getBoundingClientRect();
+      titleCenterX = rect.left + rect.width / 2;
+      titleCenterY = rect.top + rect.height / 2;
+
+      const fontSize = parseFloat(getComputedStyle(spacer).fontSize);
+
+      const text = 'Vibing Art';
+      maskCtx.font = `${fontSize}px 'Instrument Serif', Georgia, serif`;
+      const metrics = maskCtx.measureText(text);
+      const textW = Math.ceil(metrics.width);
+      const textH = Math.ceil(fontSize * 1.3);
+      const padX = Math.ceil(fontSize * 0.3);
+      const padY = Math.ceil(fontSize * 0.3);
+
+      maskW = textW + padX * 2;
+      maskH = textH + padY * 2;
+      maskCanvas.width = maskW;
+      maskCanvas.height = maskH;
+
+      maskOriginX = titleCenterX - maskW / 2;
+      maskOriginY = titleCenterY - maskH / 2;
+
+      maskCtx.fillStyle = '#000';
+      maskCtx.fillRect(0, 0, maskW, maskH);
+      maskCtx.font = `${fontSize}px 'Instrument Serif', Georgia, serif`;
+      maskCtx.textAlign = 'center';
+      maskCtx.textBaseline = 'middle';
+      maskCtx.fillStyle = '#fff';
+      maskCtx.fillText(text, maskW / 2, maskH / 2);
+
+      const imgData = maskCtx.getImageData(0, 0, maskW, maskH);
+      maskData = new Uint8Array(maskW * maskH);
+      for (let i = 0; i < maskData.length; i++) {
+        maskData[i] = imgData.data[i * 4] > 100 ? 1 : 0;
+      }
+    }
+
+    function isInTitle(cx, cy) {
+      const mx = Math.floor(cx - maskOriginX);
+      const my = Math.floor(cy - maskOriginY);
+      if (mx < 0 || mx >= maskW || my < 0 || my >= maskH) return false;
+      return maskData[my * maskW + mx] === 1;
+    }
+
+    // ── Spawn a point guaranteed inside the text mask ──
+    function randomPointInMask() {
+      // Try random sampling first (fast)
+      for (let attempt = 0; attempt < 50; attempt++) {
+        const x = maskOriginX + Math.random() * maskW;
+        const y = maskOriginY + Math.random() * maskH;
+        if (isInTitle(x, y)) return { x, y };
+      }
+      // Fallback: just use bounding box center
+      return { x: titleCenterX, y: titleCenterY };
+    }
+
+    // ── Particles ──
+    const particles = [];
+    const TOTAL = 4000;
+    const TITLE_EXTRA = 2500;
+
+    function initParticle(p, scatter, forTitle) {
+      if (forTitle) {
+        // Spawn directly inside text mask pixels
+        const pt = randomPointInMask();
+        p.x = pt.x;
+        p.y = pt.y;
+      } else {
+        p.x = Math.random() * w;
+        p.y = Math.random() * h;
+      }
+      p.px = p.x;
+      p.py = p.y;
+      p.age = scatter ? Math.random() * 200 : 0;
+      p.maxAge = forTitle ? (60 + Math.random() * 100) : (160 + Math.random() * 200);
+      p.hue = forTitle ? (240 + Math.random() * 80) : (220 + Math.random() * 100);
+      p.forTitle = forTitle;
+    }
+
+    // ── Resize ──
+    function resize() {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      w = window.innerWidth;
+      h = window.innerHeight;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, w, h);
+
+      buildTextMask();
+
+      particles.length = 0;
+      for (let i = 0; i < TOTAL; i++) {
+        const p = {};
+        initParticle(p, true, false);
+        particles.push(p);
+      }
+      for (let i = 0; i < TITLE_EXTRA; i++) {
+        const p = {};
+        initParticle(p, true, true);
+        particles.push(p);
+      }
+    }
+
+    window.addEventListener('resize', resize);
+
+    // ── Noise params ──
+    const SCALE = 0.0012;
+    const SPEED = 0.0004;
+
+    // ── Global hue shift ──
+    function globalHueShift() {
+      const t1 = noise2D(time * 2.5, 0.0) * 60;
+      const t2 = noise2D(0.0, time * 1.8) * 25;
+      return t1 + t2;
+    }
+
+    // ── Title breathing — modulates respawn rate + brightness ──
+    // Returns 0..1 where 1 = peak (dense, bright) and 0 = trough (sparse, dim)
+    function titleBreath() {
+      // Two slow noise waves for organic, non-mechanical rhythm
+      const b1 = noise2D(time * 1.2, 200) * 0.5 + 0.5;  // 0..1
+      const b2 = noise2D(300, time * 0.8) * 0.5 + 0.5;
+      return b1 * 0.6 + b2 * 0.4; // blended 0..1
+    }
+
+    // ── Animation ──
+    function animate() {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.025)';
+      ctx.fillRect(0, 0, w, h);
+
+      time += SPEED;
+      const hueShift = globalHueShift();
+      const breath = titleBreath(); // 0..1
+
+      const noiseOffX = Math.sin(time * 0.3) * 50;
+      const noiseOffY = Math.cos(time * 0.23) * 50;
+
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+
+        const nx = p.x * SCALE + noiseOffX * SCALE;
+        const ny = p.y * SCALE + noiseOffY * SCALE + time;
+        const n = noise2D(nx, ny);
+        const n2 = noise2D(nx + 100, ny + 50);
+        const n3 = noise2D(p.x * SCALE * 3, p.y * SCALE * 3 + time * 1.5);
+        const angle = n * Math.PI * 3 + n3 * Math.PI * 0.8;
+
+        // Title particles move slower so they linger in the text
+        const speed = p.forTitle ? (0.15 + Math.abs(n2) * 0.3) : (0.5 + Math.abs(n2) * 0.9);
+
+        p.px = p.x;
+        p.py = p.y;
+        p.x += Math.cos(angle) * speed;
+        p.y += Math.sin(angle) * speed;
+        p.age++;
+
+        const life = p.age / p.maxAge;
+        const fadeIn = Math.min(life * 8, 1);
+        const fadeOut = Math.max(1 - (life - 0.7) / 0.3, 0);
+        const lifeFade = Math.min(fadeIn, fadeOut);
+
+        const inText = isInTitle(p.x, p.y);
+
+        // Title brightness breathes with the cycle
+        const titleAlphaMod = 0.5 + breath * 0.5; // 0.5..1.0
+        const baseAlpha = inText ? (0.9 * titleAlphaMod) : 0.45;
+        const alpha = lifeFade * baseAlpha;
+
+        const hue = p.hue + n2 * 30 + hueShift;
+        const sat = inText ? (60 + Math.abs(n) * 30) : (50 + Math.abs(n) * 30);
+        const lit = inText ? (65 + Math.abs(n2) * 20) : (50 + Math.abs(n2) * 20);
+        const lineW = inText ? 1.6 : 1.0;
+
+        if (alpha > 0.005) {
+          ctx.beginPath();
+          ctx.moveTo(p.px, p.py);
+          ctx.lineTo(p.x, p.y);
+          ctx.strokeStyle = `hsla(${hue}, ${sat}%, ${lit}%, ${alpha})`;
+          ctx.lineWidth = lineW;
+          ctx.stroke();
+        }
+
+        // Title particles: respawn with breathing rhythm
+        if (p.forTitle) {
+          // Breathing modulates lifespan: at peak → short life (fast respawn, dense)
+          // at trough → long life (slow respawn, particles drift away, sparse)
+          const breathLife = p.maxAge * (1.8 - breath * 1.2); // range: 0.6x .. 1.8x maxAge
+          const dx = p.x - titleCenterX;
+          const dy = p.y - titleCenterY;
+          const distFromCenter = Math.sqrt(dx * dx + dy * dy);
+          const maxDist = Math.max(maskW, maskH) * 0.8;
+          if (p.age > breathLife || distFromCenter > maxDist) {
+            initParticle(p, false, true);
+          }
+        } else {
+          if (p.age > p.maxAge || p.x < -20 || p.x > w + 20 || p.y < -20 || p.y > h + 20) {
+            initParticle(p, false, false);
+          }
+        }
+      }
+
+      requestAnimationFrame(animate);
+    }
+
+    // Wait for font then start
+    document.fonts.ready.then(() => {
+      resize();
+      animate();
+    });
+  </script>
+</body>
+</html>
