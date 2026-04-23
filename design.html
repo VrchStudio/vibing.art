@@ -1,0 +1,2308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vibing Art · The Post-Feed Recommendation Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=Geist:wght@300..600&family=JetBrains+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-void: #07080F;
+    --bg-deep: #0D0F1A;
+    --bg-surface: #161827;
+    --bg-elev: #1E2138;
+    --bg-high: #2A2B42;
+    --ink-primary: #EDE4D0;
+    --ink-secondary: #A39C8A;
+    --ink-tertiary: #5C5749;
+    --ink-faint: #3A3628;
+    --accent-amber: #E8A76B;
+    --accent-rose: #D48599;
+    --accent-teal: #7FA894;
+    --accent-violet: #9D8AB8;
+    --line: rgba(237, 228, 208, 0.08);
+    --line-stronger: rgba(237, 228, 208, 0.16);
+    --line-accent: rgba(232, 167, 107, 0.3);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg-void);
+    color: var(--ink-primary);
+    font-family: 'Geist', -apple-system, sans-serif;
+    font-weight: 300;
+    line-height: 1.6;
+    overflow-x: hidden;
+    position: relative;
+  }
+
+  /* Grain overlay for film feel */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 100;
+    opacity: 0.5;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3CfeColorMatrix values='0 0 0 0 0.9 0 0 0 0 0.85 0 0 0 0 0.75 0 0 0 0.15 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* Ambient glow orbs */
+  .ambient-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.25;
+    animation: drift 30s ease-in-out infinite;
+  }
+  .orb-1 { width: 500px; height: 500px; background: var(--accent-amber); top: -100px; left: -100px; }
+  .orb-2 { width: 400px; height: 400px; background: var(--accent-rose); top: 40%; right: -100px; animation-delay: -10s; }
+  .orb-3 { width: 450px; height: 450px; background: var(--accent-teal); bottom: -100px; left: 30%; animation-delay: -20s; opacity: 0.15; }
+  .orb-4 { width: 350px; height: 350px; background: var(--accent-violet); top: 70%; left: -80px; animation-delay: -5s; opacity: 0.2; }
+
+  @keyframes drift {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(50px, -30px) scale(1.1); }
+    66% { transform: translate(-30px, 50px) scale(0.95); }
+  }
+
+  /* Typography */
+  .display {
+    font-family: 'Fraunces', serif;
+    font-weight: 300;
+    font-variation-settings: "SOFT" 50, "opsz" 144;
+    letter-spacing: -0.02em;
+  }
+  .italic {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 300;
+    font-variation-settings: "SOFT" 100, "opsz" 144;
+  }
+  .mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 400;
+    letter-spacing: 0;
+  }
+
+  .container {
+    position: relative;
+    z-index: 2;
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 0 48px;
+  }
+
+  /* HERO */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 120px 48px 80px;
+    position: relative;
+    z-index: 2;
+    max-width: 1440px;
+    margin: 0 auto;
+  }
+
+  .hero-meta {
+    display: flex;
+    gap: 32px;
+    margin-bottom: 80px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-secondary);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+  .hero-meta span::before {
+    content: "◦";
+    margin-right: 10px;
+    color: var(--accent-amber);
+  }
+
+  .hero-title {
+    font-family: 'Fraunces', serif;
+    font-weight: 300;
+    font-size: clamp(56px, 9vw, 128px);
+    line-height: 0.95;
+    letter-spacing: -0.035em;
+    color: var(--ink-primary);
+    max-width: 1200px;
+    font-variation-settings: "SOFT" 30, "opsz" 144;
+  }
+  .hero-title .italic {
+    font-style: italic;
+    color: var(--accent-amber);
+    font-variation-settings: "SOFT" 80, "opsz" 144;
+  }
+
+  .hero-subtitle {
+    margin-top: 48px;
+    font-family: 'Fraunces', serif;
+    font-weight: 300;
+    font-size: clamp(20px, 2.2vw, 28px);
+    line-height: 1.45;
+    color: var(--ink-secondary);
+    max-width: 780px;
+    font-variation-settings: "SOFT" 50, "opsz" 40;
+  }
+  .hero-subtitle em { color: var(--ink-primary); font-style: italic; }
+
+  .hero-divider {
+    display: flex;
+    align-items: baseline;
+    gap: 20px;
+    margin-top: 80px;
+    padding-top: 40px;
+    border-top: 1px solid var(--line);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    color: var(--ink-tertiary);
+    text-transform: uppercase;
+  }
+  .hero-divider .section-num { color: var(--accent-amber); }
+
+  /* SECTION HEADER */
+  .section {
+    padding: 160px 0 80px;
+    position: relative;
+    z-index: 2;
+  }
+  .section-label {
+    display: flex;
+    align-items: baseline;
+    gap: 24px;
+    margin-bottom: 64px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ink-secondary);
+  }
+  .section-label .num {
+    color: var(--accent-amber);
+  }
+  .section-label .bar {
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+
+  .section-heading {
+    font-family: 'Fraunces', serif;
+    font-weight: 300;
+    font-size: clamp(40px, 5vw, 72px);
+    line-height: 1;
+    letter-spacing: -0.02em;
+    max-width: 1100px;
+    margin-bottom: 32px;
+    font-variation-settings: "SOFT" 40, "opsz" 144;
+  }
+  .section-heading .italic {
+    font-style: italic;
+    color: var(--accent-rose);
+  }
+
+  .section-kicker {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 20px;
+    color: var(--ink-secondary);
+    max-width: 700px;
+    margin-bottom: 80px;
+    line-height: 1.5;
+  }
+
+  /* PARADIGM SHIFTS */
+  .shifts-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .shift {
+    background: var(--bg-void);
+    padding: 48px 40px;
+    position: relative;
+    transition: background 0.6s ease;
+  }
+  .shift:hover { background: var(--bg-deep); }
+  .shift-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--accent-amber);
+    margin-bottom: 24px;
+  }
+  .shift-move {
+    font-family: 'Fraunces', serif;
+    font-size: 32px;
+    line-height: 1.2;
+    margin-bottom: 20px;
+    font-variation-settings: "SOFT" 50, "opsz" 60;
+  }
+  .shift-move .from { color: var(--ink-tertiary); text-decoration: line-through; text-decoration-color: var(--ink-tertiary); text-decoration-thickness: 1px; }
+  .shift-move .arrow { color: var(--accent-amber); margin: 0 14px; font-style: italic; font-size: 28px; }
+  .shift-move .to { color: var(--ink-primary); font-style: italic; }
+  .shift-desc {
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--ink-secondary);
+    max-width: 480px;
+  }
+
+  /* ARCHITECTURE DIAGRAM */
+  .architecture {
+    padding: 60px 0;
+    position: relative;
+  }
+  .layer-diagram {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 80px;
+    align-items: start;
+  }
+  .diagram-visual {
+    aspect-ratio: 1;
+    position: relative;
+  }
+
+  .layer-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .layer-row {
+    display: grid;
+    grid-template-columns: 60px 140px 1fr;
+    gap: 24px;
+    align-items: baseline;
+    padding: 24px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .layer-code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--accent-amber);
+    letter-spacing: 0.1em;
+  }
+  .layer-name {
+    font-family: 'Fraunces', serif;
+    font-size: 22px;
+    font-weight: 400;
+    color: var(--ink-primary);
+    font-variation-settings: "SOFT" 40, "opsz" 60;
+  }
+  .layer-name .italic { font-style: italic; color: var(--accent-rose); }
+  .layer-desc {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink-secondary);
+  }
+
+  /* WIREFRAMES */
+  .wireframes-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 40px 32px;
+    margin-top: 40px;
+  }
+
+  .wf-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .wf-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent-amber);
+  }
+  .wf-title {
+    font-family: 'Fraunces', serif;
+    font-size: 24px;
+    line-height: 1.15;
+    font-variation-settings: "SOFT" 50, "opsz" 60;
+  }
+  .wf-title .italic { font-style: italic; color: var(--accent-rose); }
+  .wf-caption {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--ink-secondary);
+  }
+
+  .phone {
+    width: 100%;
+    max-width: 320px;
+    aspect-ratio: 9 / 19.5;
+    background: var(--bg-deep);
+    border: 1.5px solid var(--line-stronger);
+    border-radius: 32px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 30px 80px -20px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.02) inset;
+  }
+  .phone::before {
+    content: "";
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 80px;
+    height: 20px;
+    background: var(--bg-void);
+    border-radius: 20px;
+    z-index: 20;
+  }
+  .status-bar {
+    height: 38px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 0 18px 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--ink-secondary);
+    position: relative;
+    z-index: 10;
+  }
+  .screen {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* SCREEN 1: L0 LOCK SCREEN / AMBIENT LAYER */
+  .screen-lock {
+    background: linear-gradient(180deg, #1a1e3a 0%, #2a1f3a 50%, #3a2030 100%);
+    padding: 28px 20px;
+    color: rgba(255,255,255,0.9);
+  }
+  .lock-time {
+    font-family: 'Fraunces', serif;
+    font-weight: 300;
+    font-size: 68px;
+    line-height: 0.9;
+    letter-spacing: -0.04em;
+    margin-top: 8px;
+    font-variation-settings: "SOFT" 80, "opsz" 144;
+  }
+  .lock-date {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: rgba(255,255,255,0.5);
+    margin-top: 4px;
+    letter-spacing: 0.15em;
+  }
+  .live-activity {
+    margin-top: 36px;
+    padding: 14px;
+    background: rgba(255,255,255,0.08);
+    backdrop-filter: blur(20px);
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .la-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 9px;
+    color: rgba(255,255,255,0.6);
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .la-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-amber);
+    box-shadow: 0 0 8px var(--accent-amber);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
+  .la-title {
+    font-family: 'Fraunces', serif;
+    font-size: 14px;
+    font-style: italic;
+    color: rgba(255,255,255,0.95);
+    line-height: 1.3;
+  }
+  .la-waveform {
+    margin-top: 10px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .la-waveform span {
+    flex: 1;
+    background: linear-gradient(180deg, var(--accent-amber), var(--accent-rose));
+    border-radius: 2px;
+    opacity: 0.6;
+    animation: wave 1.4s ease-in-out infinite;
+  }
+  .la-waveform span:nth-child(1) { height: 30%; animation-delay: 0s; }
+  .la-waveform span:nth-child(2) { height: 60%; animation-delay: 0.1s; }
+  .la-waveform span:nth-child(3) { height: 80%; animation-delay: 0.2s; }
+  .la-waveform span:nth-child(4) { height: 45%; animation-delay: 0.3s; }
+  .la-waveform span:nth-child(5) { height: 90%; animation-delay: 0.4s; }
+  .la-waveform span:nth-child(6) { height: 70%; animation-delay: 0.5s; }
+  .la-waveform span:nth-child(7) { height: 35%; animation-delay: 0.6s; }
+  .la-waveform span:nth-child(8) { height: 65%; animation-delay: 0.7s; }
+  .la-waveform span:nth-child(9) { height: 50%; animation-delay: 0.8s; }
+  .la-waveform span:nth-child(10) { height: 75%; animation-delay: 0.9s; }
+  .la-waveform span:nth-child(11) { height: 40%; animation-delay: 1s; }
+  @keyframes wave {
+    0%, 100% { opacity: 0.3; transform: scaleY(0.7); }
+    50% { opacity: 0.9; transform: scaleY(1.1); }
+  }
+
+  .lock-widget {
+    margin-top: 20px;
+    padding: 14px 16px;
+    background: rgba(0,0,0,0.25);
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .widget-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    color: rgba(255,255,255,0.4);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .widget-vibe {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 13px;
+    color: rgba(255,255,255,0.85);
+    line-height: 1.3;
+  }
+  .widget-row {
+    margin-top: 8px;
+    display: flex;
+    gap: 6px;
+    font-size: 8px;
+    color: rgba(255,255,255,0.4);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* SCREEN 2: L1 NOW ENTRY */
+  .screen-now {
+    background: radial-gradient(ellipse at 50% 40%, #2a2f4a 0%, #1a1d2e 50%, #0f0f1a 100%);
+    position: relative;
+    padding: 24px 20px;
+    flex: 1;
+  }
+  .now-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-top: 4px;
+  }
+  .now-top .dot { width: 4px; height: 4px; background: var(--accent-amber); border-radius: 50%; display: inline-block; margin: 0 4px 2px; }
+
+  .now-center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 40px 24px;
+  }
+  .now-vibe-ring {
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg, var(--accent-amber), var(--accent-rose), var(--accent-violet), var(--accent-teal), var(--accent-amber));
+    filter: blur(2px);
+    opacity: 0.7;
+    animation: rotate 40s linear infinite;
+    position: relative;
+  }
+  @keyframes rotate {
+    to { transform: rotate(360deg); }
+  }
+  .now-vibe-ring::after {
+    content: "";
+    position: absolute;
+    inset: 20px;
+    background: radial-gradient(circle, rgba(26, 29, 46, 0.6), rgba(26, 29, 46, 0.95));
+    border-radius: 50%;
+    backdrop-filter: blur(10px);
+  }
+  .now-vibe-text {
+    position: absolute;
+    text-align: center;
+    z-index: 2;
+    padding: 0 20px;
+  }
+  .now-vibe-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .now-vibe-title {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 18px;
+    color: rgba(255,255,255,0.95);
+    line-height: 1.2;
+    font-variation-settings: "SOFT" 100, "opsz" 40;
+  }
+
+  .now-hints {
+    position: absolute;
+    bottom: 24px;
+    left: 0;
+    right: 0;
+    padding: 0 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8.5px;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 0.1em;
+  }
+  .now-hints .hint {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .now-hints .key {
+    background: rgba(255,255,255,0.08);
+    padding: 3px 8px;
+    border-radius: 4px;
+    color: rgba(255,255,255,0.8);
+    letter-spacing: 0.05em;
+    font-size: 8px;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+
+  /* SCREEN 3: L2 STREAMS */
+  .screen-streams {
+    background: var(--bg-deep);
+    padding: 24px 0 0;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }
+  .streams-top {
+    padding: 0 20px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .streams-title {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 20px;
+    color: var(--ink-primary);
+  }
+  .streams-nav {
+    display: flex;
+    gap: 12px;
+    padding: 0 20px;
+    margin-bottom: 18px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .stream-tab {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--ink-tertiary);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    padding: 4px 0;
+    border-bottom: 1px solid transparent;
+  }
+  .stream-tab.active {
+    color: var(--accent-amber);
+    border-bottom-color: var(--accent-amber);
+  }
+
+  .stream-strip {
+    margin-bottom: 20px;
+  }
+  .stream-strip-label {
+    padding: 0 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--ink-secondary);
+    margin-bottom: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    display: flex;
+    justify-content: space-between;
+  }
+  .stream-strip-label .count { color: var(--ink-tertiary); }
+  .stream-rail {
+    display: flex;
+    gap: 8px;
+    padding: 0 20px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .vibe-card {
+    flex-shrink: 0;
+    width: 100px;
+    height: 140px;
+    border-radius: 10px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: flex-end;
+    padding: 10px;
+  }
+  .vibe-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, transparent 40%, rgba(0,0,0,0.7) 100%);
+    z-index: 1;
+  }
+  .vc-1 { background: linear-gradient(135deg, #D48599 0%, #E8A76B 100%); }
+  .vc-2 { background: linear-gradient(180deg, #2a3a5a 0%, #1a1d3a 100%); }
+  .vc-3 { background: linear-gradient(135deg, #7FA894 0%, #3a5a4a 100%); }
+  .vc-4 { background: linear-gradient(180deg, #9D8AB8 0%, #4a3a6a 100%); }
+  .vc-5 { background: linear-gradient(135deg, #E8A76B 0%, #c07050 100%); }
+  .vibe-card-label {
+    position: relative;
+    z-index: 2;
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 10px;
+    color: rgba(255,255,255,0.95);
+    line-height: 1.2;
+    font-variation-settings: "SOFT" 100, "opsz" 30;
+  }
+  .vibe-card-meta {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7px;
+    color: rgba(255,255,255,0.7);
+    letter-spacing: 0.1em;
+    z-index: 2;
+  }
+  .vibe-card.friend::after {
+    content: "";
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-teal);
+    box-shadow: 0 0 6px var(--accent-teal);
+    z-index: 2;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  /* SCREEN 4: L3 COSMOS */
+  .screen-cosmos {
+    background: radial-gradient(ellipse at center, #1a1a3a 0%, #0a0a1a 80%);
+    flex: 1;
+    position: relative;
+    padding: 20px 20px 24px;
+    display: flex;
+    flex-direction: column;
+  }
+  .cosmos-top {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .cosmos-axes {
+    flex: 1;
+    position: relative;
+    margin: 12px 0;
+  }
+  .cosmos-axis-v, .cosmos-axis-h {
+    position: absolute;
+    background: rgba(255,255,255,0.08);
+  }
+  .cosmos-axis-v { left: 50%; top: 0; bottom: 0; width: 1px; }
+  .cosmos-axis-h { top: 50%; left: 0; right: 0; height: 1px; }
+  .axis-label {
+    position: absolute;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7px;
+    color: rgba(255,255,255,0.35);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+  .axis-label.top { top: 4px; left: 50%; transform: translateX(-50%); }
+  .axis-label.bottom { bottom: 4px; left: 50%; transform: translateX(-50%); }
+  .axis-label.left { left: 4px; top: 50%; transform: translateY(-50%) rotate(-90deg); transform-origin: 0 50%; }
+  .axis-label.right { right: 4px; top: 50%; transform: translateY(-50%) rotate(90deg); transform-origin: 100% 50%; }
+
+  .star {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.4);
+  }
+  .star.s1 { width: 3px; height: 3px; top: 20%; left: 30%; }
+  .star.s2 { width: 2px; height: 2px; top: 35%; left: 65%; }
+  .star.s3 { width: 4px; height: 4px; top: 55%; left: 25%; background: var(--accent-rose); box-shadow: 0 0 10px var(--accent-rose); }
+  .star.s4 { width: 2px; height: 2px; top: 70%; left: 60%; }
+  .star.s5 { width: 3px; height: 3px; top: 45%; left: 75%; background: var(--accent-teal); box-shadow: 0 0 8px var(--accent-teal); }
+  .star.s6 { width: 2px; height: 2px; top: 25%; left: 80%; }
+  .star.s7 { width: 3px; height: 3px; top: 80%; left: 40%; }
+  .star.s8 { width: 2px; height: 2px; top: 15%; left: 55%; }
+  .star.s9 { width: 2px; height: 2px; top: 60%; left: 85%; }
+  .star.s10 { width: 2px; height: 2px; top: 75%; left: 15%; }
+
+  .you-star {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent-amber);
+    box-shadow: 0 0 20px var(--accent-amber), 0 0 40px rgba(232, 167, 107, 0.3);
+    animation: pulse-glow 3s ease-in-out infinite;
+  }
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 20px var(--accent-amber), 0 0 40px rgba(232, 167, 107, 0.3); }
+    50% { box-shadow: 0 0 30px var(--accent-amber), 0 0 60px rgba(232, 167, 107, 0.5); }
+  }
+  .you-label {
+    position: absolute;
+    top: calc(50% + 12px);
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    color: var(--accent-amber);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+
+  .trail {
+    position: absolute;
+    top: 30%;
+    left: 35%;
+    width: 60px;
+    height: 60px;
+    border: 1px dashed rgba(232, 167, 107, 0.3);
+    border-radius: 50%;
+    transform: translate(-10%, 10%);
+  }
+
+  .cosmos-bottom {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 11px;
+    color: rgba(255,255,255,0.7);
+    text-align: center;
+    line-height: 1.4;
+  }
+
+  /* SCREEN 5: LUMA DIALOGUE */
+  .screen-luma {
+    background: var(--bg-deep);
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 24px 20px;
+  }
+  .luma-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 16px;
+  }
+  .luma-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg, var(--accent-amber), var(--accent-rose), var(--accent-violet), var(--accent-teal), var(--accent-amber));
+    animation: rotate 10s linear infinite;
+  }
+  .luma-name {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 14px;
+    color: var(--ink-primary);
+  }
+  .luma-status {
+    margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    color: var(--ink-secondary);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .luma-status::before {
+    content: "●";
+    color: var(--accent-teal);
+    margin-right: 4px;
+  }
+
+  .luma-msgs {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow: hidden;
+  }
+  .msg {
+    font-size: 11px;
+    line-height: 1.5;
+    padding: 10px 12px;
+    border-radius: 12px;
+    max-width: 82%;
+  }
+  .msg-luma {
+    background: rgba(232, 167, 107, 0.08);
+    border: 1px solid rgba(232, 167, 107, 0.15);
+    color: var(--ink-primary);
+    align-self: flex-start;
+    border-bottom-left-radius: 2px;
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+  }
+  .msg-user {
+    background: rgba(255,255,255,0.05);
+    color: var(--ink-primary);
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+  }
+  .msg-why {
+    margin-top: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    color: var(--accent-amber);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    opacity: 0.7;
+  }
+
+  .suggestion {
+    align-self: flex-start;
+    width: 100%;
+    padding: 10px;
+    background: linear-gradient(135deg, rgba(212,133,153,0.15), rgba(157,138,184,0.1));
+    border: 1px solid rgba(212,133,153,0.2);
+    border-radius: 10px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .suggestion-swatch {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent-rose), var(--accent-violet));
+    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .suggestion-swatch::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.3), transparent);
+  }
+  .suggestion-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .suggestion-title {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 11px;
+    color: var(--ink-primary);
+    line-height: 1.2;
+  }
+  .suggestion-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    color: var(--ink-secondary);
+    letter-spacing: 0.1em;
+    margin-top: 4px;
+  }
+  .enter-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    color: var(--accent-amber);
+    padding: 6px 10px;
+    border: 1px solid var(--accent-amber);
+    border-radius: 20px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+
+  .luma-input {
+    margin-top: 16px;
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    font-size: 10px;
+    color: var(--ink-tertiary);
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+  }
+
+  /* SCREEN 6: PARTY / CO-PRESENCE MODE */
+  .screen-party {
+    background: linear-gradient(180deg, #1a0f2a 0%, #0a0515 100%);
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 24px 20px;
+    position: relative;
+  }
+  .party-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--accent-rose);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+  .party-label::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-rose);
+    box-shadow: 0 0 8px var(--accent-rose);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .party-title {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 24px;
+    margin-top: 10px;
+    line-height: 1.1;
+    font-variation-settings: "SOFT" 80, "opsz" 60;
+  }
+
+  .party-vibe-preview {
+    margin-top: 20px;
+    aspect-ratio: 16/10;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #D48599 0%, #9D8AB8 50%, #7FA894 100%);
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .party-vibe-preview::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 30% 40%, rgba(255,255,255,0.3), transparent 50%);
+  }
+  .preview-label {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    color: rgba(255,255,255,0.8);
+    letter-spacing: 0.15em;
+  }
+  .preview-qr {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    width: 28px;
+    height: 28px;
+    background: #fff;
+    border-radius: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    padding: 3px;
+    gap: 1px;
+  }
+  .preview-qr div {
+    flex: 0 0 calc(20% - 1px);
+    aspect-ratio: 1;
+    background: #000;
+  }
+  .preview-qr div:nth-child(odd) { background: #000; }
+  .preview-qr div:nth-child(even) { background: transparent; }
+  .preview-qr div:nth-child(3n) { background: #000; }
+
+  .party-participants {
+    margin-top: 16px;
+    padding: 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .pp-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    color: var(--ink-secondary);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .pp-avatars {
+    display: flex;
+    gap: -4px;
+    margin-bottom: 8px;
+  }
+  .pp-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1.5px solid var(--bg-deep);
+    margin-right: -6px;
+  }
+  .pp-1 { background: var(--accent-amber); }
+  .pp-2 { background: var(--accent-rose); }
+  .pp-3 { background: var(--accent-teal); }
+  .pp-4 { background: var(--accent-violet); }
+  .pp-5 { background: rgba(255,255,255,0.3); display: flex; align-items: center; justify-content: center; font-size: 7px; color: rgba(0,0,0,0.8); font-family: 'JetBrains Mono', monospace; margin-right: 0; }
+  .pp-msg {
+    margin-top: 6px;
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 10px;
+    color: var(--ink-secondary);
+    line-height: 1.4;
+  }
+  .pp-msg .who { color: var(--accent-amber); font-style: normal; font-family: 'JetBrains Mono', monospace; font-size: 8px; text-transform: uppercase; letter-spacing: 0.1em; margin-right: 4px; }
+
+  .party-ctrls {
+    margin-top: auto;
+    display: flex;
+    gap: 6px;
+    padding-top: 16px;
+  }
+  .party-btn {
+    flex: 1;
+    padding: 10px 6px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    color: var(--ink-primary);
+    text-align: center;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .party-btn.primary {
+    background: var(--accent-amber);
+    color: var(--bg-deep);
+    border-color: var(--accent-amber);
+  }
+
+  /* GESTURES */
+  .gestures-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  .gesture-cell {
+    background: var(--bg-void);
+    padding: 28px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    transition: background 0.3s ease;
+    position: relative;
+  }
+  .gesture-cell:hover { background: var(--bg-deep); }
+  .gesture-icon {
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--line-stronger);
+    border-radius: 10px;
+    position: relative;
+  }
+  .gesture-icon svg {
+    width: 22px;
+    height: 22px;
+    stroke: var(--accent-amber);
+    stroke-width: 1.5;
+    fill: none;
+  }
+  .gesture-name {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 18px;
+    color: var(--ink-primary);
+    font-variation-settings: "SOFT" 80, "opsz" 30;
+  }
+  .gesture-effect {
+    font-size: 12px;
+    color: var(--ink-secondary);
+    line-height: 1.55;
+  }
+  .gesture-mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--accent-amber);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+
+  /* USER JOURNEY */
+  .journeys-container {
+    display: flex;
+    flex-direction: column;
+    gap: 80px;
+  }
+
+  .journey {
+    border-top: 1px solid var(--line);
+    padding-top: 48px;
+  }
+  .journey-header {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 40px;
+    margin-bottom: 40px;
+  }
+  .journey-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--accent-amber);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+  .journey-persona {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 14px;
+    color: var(--ink-secondary);
+    margin-top: 10px;
+  }
+  .journey-title {
+    font-family: 'Fraunces', serif;
+    font-size: 36px;
+    line-height: 1.1;
+    color: var(--ink-primary);
+    margin-bottom: 18px;
+    font-variation-settings: "SOFT" 40, "opsz" 90;
+  }
+  .journey-title .italic { font-style: italic; color: var(--accent-rose); }
+  .journey-desc {
+    font-size: 15px;
+    line-height: 1.65;
+    color: var(--ink-secondary);
+    max-width: 700px;
+  }
+
+  .journey-steps {
+    position: relative;
+    margin-left: 240px;
+    padding-left: 40px;
+    border-left: 1px dashed var(--line-stronger);
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+  .step {
+    position: relative;
+  }
+  .step::before {
+    content: "";
+    position: absolute;
+    left: -47px;
+    top: 6px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--bg-void);
+    border: 1.5px solid var(--accent-amber);
+  }
+  .step::after {
+    content: "";
+    position: absolute;
+    left: -42px;
+    top: 11px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--accent-amber);
+  }
+  .step-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--ink-tertiary);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .step-trigger {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 20px;
+    line-height: 1.25;
+    color: var(--ink-primary);
+    margin-bottom: 10px;
+    font-variation-settings: "SOFT" 60, "opsz" 60;
+  }
+  .step-system {
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--ink-secondary);
+    max-width: 680px;
+  }
+  .step-system .call {
+    color: var(--accent-amber);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 1px 6px;
+    background: rgba(232, 167, 107, 0.08);
+    border-radius: 3px;
+    letter-spacing: 0.08em;
+  }
+
+  /* SIGNAL ARCHITECTURE */
+  .signal-architecture {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto 1fr;
+    gap: 24px;
+    align-items: stretch;
+    margin-top: 40px;
+  }
+  .signal-group {
+    background: var(--bg-deep);
+    border: 1px solid var(--line);
+    padding: 28px 24px;
+    border-radius: 4px;
+    position: relative;
+  }
+  .signal-group-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--accent-amber);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+  .signal-group-title {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 28px;
+    margin-bottom: 20px;
+    line-height: 1.1;
+    font-variation-settings: "SOFT" 80, "opsz" 60;
+  }
+  .signal-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .signal-list li {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--ink-secondary);
+    padding-left: 16px;
+    position: relative;
+  }
+  .signal-list li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 8px;
+    width: 8px;
+    height: 1px;
+    background: var(--ink-tertiary);
+  }
+  .signal-list li strong {
+    color: var(--ink-primary);
+    font-weight: 400;
+  }
+
+  .signal-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-amber);
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 24px;
+  }
+
+  .model-center {
+    background: linear-gradient(180deg, rgba(232,167,107,0.08), rgba(212,133,153,0.08));
+    border: 1px solid var(--line-accent);
+  }
+
+  /* MANIFESTO */
+  .manifesto {
+    padding: 160px 0 120px;
+    position: relative;
+    z-index: 2;
+  }
+  .manifesto-title {
+    font-family: 'Fraunces', serif;
+    font-weight: 300;
+    font-size: clamp(48px, 7vw, 96px);
+    line-height: 1;
+    letter-spacing: -0.03em;
+    margin-bottom: 80px;
+    font-variation-settings: "SOFT" 40, "opsz" 144;
+  }
+  .manifesto-title .italic { font-style: italic; color: var(--accent-amber); }
+
+  .principles {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 48px 64px;
+  }
+  .principle {
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  .principle-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    color: var(--accent-amber);
+    letter-spacing: 0.1em;
+    padding-top: 6px;
+  }
+  .principle-text {
+    font-family: 'Fraunces', serif;
+    font-size: 20px;
+    line-height: 1.45;
+    color: var(--ink-primary);
+    font-variation-settings: "SOFT" 40, "opsz" 40;
+  }
+  .principle-text em {
+    font-style: italic;
+    color: var(--accent-amber);
+  }
+
+  /* FOOTER */
+  .footer {
+    padding: 80px 48px 40px;
+    border-top: 1px solid var(--line);
+    max-width: 1440px;
+    margin: 0 auto;
+    position: relative;
+    z-index: 2;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--ink-tertiary);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+  .footer .brand {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 18px;
+    color: var(--accent-amber);
+    letter-spacing: normal;
+    text-transform: none;
+  }
+
+  /* Responsive */
+  @media (max-width: 1024px) {
+    .wireframes-grid { grid-template-columns: repeat(2, 1fr); }
+    .shifts-grid { grid-template-columns: 1fr; }
+    .layer-diagram { grid-template-columns: 1fr; gap: 40px; }
+    .signal-architecture { grid-template-columns: 1fr; }
+    .signal-arrow { transform: rotate(90deg); padding: 16px 0; }
+    .journey-header { grid-template-columns: 1fr; }
+    .journey-steps { margin-left: 0; }
+    .gestures-grid { grid-template-columns: repeat(2, 1fr); }
+    .principles { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 640px) {
+    .container, .hero { padding-left: 24px; padding-right: 24px; }
+    .wireframes-grid { grid-template-columns: 1fr; }
+    .gestures-grid { grid-template-columns: 1fr; }
+    .footer { padding: 40px 24px 24px; flex-direction: column; gap: 16px; }
+  }
+
+</style>
+</head>
+<body>
+
+<div class="ambient-bg">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+  <div class="orb orb-4"></div>
+</div>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-meta">
+    <span>Vibing Art</span>
+    <span>Post-Feed Recommendation Architecture</span>
+    <span>v0.1 · 2026</span>
+  </div>
+  <h1 class="hero-title">
+    Not another feed.<br>
+    <span class="italic">A field you move through.</span>
+  </h1>
+  <p class="hero-subtitle">
+    TikTok 用 15 秒视频教会了一代人消费，但 <em>vibe 不是视频</em>。一个可栖居的情绪空间，放在无穷滚动里就是形态层面的谋杀。 这份文档重新思考"推荐"这个动作本身——从 <em>feed 到 field</em>，从 <em>algorithm 到 agent</em>，从 <em>consumption 到 inhabitation</em>。
+  </p>
+  <div class="hero-divider">
+    <span class="section-num">§ 00</span>
+    <span>Contents · 07 paradigm shifts · 04 layer architecture · 06 wireframes · 08 gestures · 03 journeys · 01 signal stack</span>
+  </div>
+</section>
+
+<!-- SECTION 1: PARADIGM SHIFTS -->
+<section class="section container">
+  <div class="section-label">
+    <span class="num">§ 01</span>
+    <span>Paradigm Shifts</span>
+    <span class="bar"></span>
+    <span>07 Inversions</span>
+  </div>
+  <h2 class="section-heading">
+    Seven moves that <span class="italic">invert the genre</span>.
+  </h2>
+  <p class="section-kicker">
+    The vocabulary of recommendation was built for content. Vibing Art is not content. These seven shifts are the thinking before any pixel gets drawn.
+  </p>
+
+  <div class="shifts-grid">
+    <div class="shift">
+      <div class="shift-num">01 · Topology</div>
+      <div class="shift-move"><span class="from">Feed</span><span class="arrow">→</span><span class="to">Field</span></div>
+      <div class="shift-desc">不是线性队列，是可穿行的场。"下一条"变成"相邻空间"。方向不是 vertical scroll，而是 lateral drift + radial dive。</div>
+    </div>
+    <div class="shift">
+      <div class="shift-num">02 · Intelligence</div>
+      <div class="shift-move"><span class="from">Algorithm</span><span class="arrow">→</span><span class="to">Agent</span></div>
+      <div class="shift-desc">Luma 不是黑盒优化器，是能用自然语言解释"为什么推荐这个"的对话者。每个推荐旁有 <span class="mono" style="color: var(--accent-amber);">why?</span> 按钮。</div>
+    </div>
+    <div class="shift">
+      <div class="shift-num">03 · Temporality</div>
+      <div class="shift-move"><span class="from">Consumption</span><span class="arrow">→</span><span class="to">Inhabitation</span></div>
+      <div class="shift-desc">Vibe 不"结束"——用户可以"留一盏蜡烛"在后台运行，返回而非下滑。单次 session 不是 3 分钟，是 30 分钟到 3 小时。</div>
+    </div>
+    <div class="shift">
+      <div class="shift-num">04 · Engagement</div>
+      <div class="shift-move"><span class="from">Attention</span><span class="arrow">→</span><span class="to">Presence</span></div>
+      <div class="shift-desc">产品为完全专注或完全背景化设计，拒绝"半专注式刷"——这是 doom-scroll 在架构层的消除，不是 UI 层的"请勿沉迷"弹窗。</div>
+    </div>
+    <div class="shift">
+      <div class="shift-num">05 · Sociality</div>
+      <div class="shift-move"><span class="from">Individual</span><span class="arrow">→</span><span class="to">Co-presence</span></div>
+      <div class="shift-desc">朋友可以<strong style="color: var(--ink-primary);">同时在场</strong>于同一个 vibe。社交图谱变成空间图谱——不是 likes 和 follows，是 "who is in this room with me right now"。</div>
+    </div>
+    <div class="shift">
+      <div class="shift-num">06 · Memory</div>
+      <div class="shift-move"><span class="from">History</span><span class="arrow">→</span><span class="to">Palace</span></div>
+      <div class="shift-desc">过去栖居的 vibe 不是被遗忘的日志，是可返回的房间。记忆宫殿有方位、有气味、有回响——是你在 Vibing Art 里真正拥有的空间。</div>
+    </div>
+    <div class="shift">
+      <div class="shift-num">07 · Cadence</div>
+      <div class="shift-move"><span class="from">Content</span><span class="arrow">→</span><span class="to">Ritual</span></div>
+      <div class="shift-desc">日节律（晨醒/通勤/午休/深夜）、周节律（工作日/周末）、季节律——Luma 是仪式守护者，不是 feed 算子。推荐有记忆、有关系、有呼吸。</div>
+    </div>
+    <div class="shift" style="background: linear-gradient(135deg, rgba(232,167,107,0.04), rgba(212,133,153,0.04));">
+      <div class="shift-num" style="color: var(--accent-rose);">∞ · Meta</div>
+      <div class="shift-move"><span class="italic" style="color: var(--ink-primary); font-size: 24px;">"The recommendation is not the vibe. The dialogue is."</span></div>
+      <div class="shift-desc">真正的推荐不是一张列表或一条流，是你与 Luma 之间那场慢慢澄清"你此刻是谁"的对话。这个对话就是产品。</div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 2: LAYER ARCHITECTURE -->
+<section class="section container">
+  <div class="section-label">
+    <span class="num">§ 02</span>
+    <span>Layer Architecture</span>
+    <span class="bar"></span>
+    <span>L0 — L4 Nested</span>
+  </div>
+  <h2 class="section-heading">
+    Not a feed. <span class="italic">Five layers, nested.</span>
+  </h2>
+  <p class="section-kicker">
+    The recommendation "surface" is not a surface. It's a set of depths — from always-on ambient presence to agentic dialogue — each summonable by a distinct gesture.
+  </p>
+
+  <div class="architecture">
+    <div class="layer-diagram">
+      <!-- Concentric diagram -->
+      <div class="diagram-visual">
+        <svg viewBox="0 0 400 400" style="width: 100%; height: 100%;">
+          <!-- L0 outermost -->
+          <circle cx="200" cy="200" r="195" fill="none" stroke="rgba(237,228,208,0.08)" stroke-width="1" stroke-dasharray="2 4"/>
+          <circle cx="200" cy="200" r="195" fill="rgba(127,168,148,0.04)"/>
+          <text x="200" y="22" text-anchor="middle" fill="#7FA894" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="2">L0 · AMBIENT</text>
+
+          <!-- L1 -->
+          <circle cx="200" cy="200" r="155" fill="rgba(157,138,184,0.05)" stroke="rgba(237,228,208,0.1)" stroke-width="1"/>
+          <text x="200" y="62" text-anchor="middle" fill="#9D8AB8" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="2">L1 · NOW ENTRY</text>
+
+          <!-- L2 -->
+          <circle cx="200" cy="200" r="115" fill="rgba(212,133,153,0.06)" stroke="rgba(237,228,208,0.12)" stroke-width="1"/>
+          <text x="200" y="102" text-anchor="middle" fill="#D48599" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="2">L2 · STREAMS</text>
+
+          <!-- L3 -->
+          <circle cx="200" cy="200" r="75" fill="rgba(232,167,107,0.08)" stroke="rgba(237,228,208,0.15)" stroke-width="1"/>
+          <text x="200" y="142" text-anchor="middle" fill="#E8A76B" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="2">L3 · COSMOS</text>
+
+          <!-- L4 core -->
+          <circle cx="200" cy="200" r="35" fill="rgba(232,167,107,0.25)" stroke="#E8A76B" stroke-width="1.5"/>
+          <text x="200" y="196" text-anchor="middle" fill="#E8A76B" font-family="Fraunces, serif" font-style="italic" font-size="13">Luma</text>
+          <text x="200" y="212" text-anchor="middle" fill="#E8A76B" font-family="JetBrains Mono, monospace" font-size="8" letter-spacing="2">L4</text>
+
+          <!-- Gesture hints -->
+          <text x="200" y="380" text-anchor="middle" fill="#5C5749" font-family="JetBrains Mono, monospace" font-size="9" letter-spacing="1.5">↓ PULL FROM ANY LAYER REVEALS L4</text>
+        </svg>
+      </div>
+
+      <!-- Layer descriptions -->
+      <div class="layer-list">
+        <div class="layer-row">
+          <div class="layer-code">L0</div>
+          <div class="layer-name"><span class="italic">Ambient</span></div>
+          <div class="layer-desc">App 未打开时，vibe 已在 Lock Screen Widget / Live Activity / Home Screen 中低强度运行。推荐的第一层是<strong style="color: var(--ink-primary); font-weight: 400;">环境陪伴</strong>而非会话展示。触发：锁屏一瞥 / Widget / Dynamic Island。</div>
+        </div>
+        <div class="layer-row">
+          <div class="layer-code">L1</div>
+          <div class="layer-name"><span class="italic">Now</span></div>
+          <div class="layer-desc">打开 App 即已进入一个 vibe——不是菜单，不是列表。由时间、天气、HRV、日历、近期情绪轨迹共同孵化的"当下之 vibe"。Tap enter / Hold preview。</div>
+        </div>
+        <div class="layer-row">
+          <div class="layer-code">L2</div>
+          <div class="layer-name"><span class="italic">Streams</span></div>
+          <div class="layer-desc">左右穿行五条主题流：<strong style="color: var(--ink-primary); font-weight: 400;">▲ Arc</strong>（今日弧线）· <strong style="color: var(--ink-primary); font-weight: 400;">◉ Circle</strong>（朋友在场）· <strong style="color: var(--ink-primary); font-weight: 400;">◎ Resonance</strong>（口味深挖）· <strong style="color: var(--ink-primary); font-weight: 400;">✸ Rupture</strong>（刻意反模式）· <strong style="color: var(--ink-primary); font-weight: 400;">⟲ Palace</strong>（记忆宫殿）。</div>
+        </div>
+        <div class="layer-row">
+          <div class="layer-code">L3</div>
+          <div class="layer-name"><span class="italic">Cosmos</span></div>
+          <div class="layer-desc">双指捏合进入星座式探索：vibes 作为情绪—美学坐标系中的星体。你的轨迹可见，好友的星座漂浮相邻。按轨道或亮度发现，而非按算法排序。</div>
+        </div>
+        <div class="layer-row">
+          <div class="layer-code">L4</div>
+          <div class="layer-name"><span class="italic">Dialogue</span></div>
+          <div class="layer-desc">任何层级下拉即召唤 Luma。这是推荐系统的"命令行"——你描述、Luma 反问澄清、共创新 vibe。不是聊天框，是<strong style="color: var(--ink-primary); font-weight: 400;">共感对话</strong>。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 3: WIREFRAMES -->
+<section class="section container">
+  <div class="section-label">
+    <span class="num">§ 03</span>
+    <span>Wireframes</span>
+    <span class="bar"></span>
+    <span>06 Key Screens</span>
+  </div>
+  <h2 class="section-heading">
+    Six screens, <span class="italic">one conversation</span>.
+  </h2>
+  <p class="section-kicker">
+    这些不是"页面"——是同一场对话的不同深度。每屏都可从任意屏通过手势直接召唤。
+  </p>
+
+  <div class="wireframes-grid">
+    <!-- Wireframe 1: Lock Screen / L0 -->
+    <div class="wf-cell">
+      <div class="phone">
+        <div class="status-bar">
+          <span>9:42</span>
+          <span>● ●●●</span>
+        </div>
+        <div class="screen screen-lock">
+          <div class="lock-time">9:42</div>
+          <div class="lock-date">TUESDAY · APR 23 · LIGHT RAIN</div>
+          <div class="live-activity">
+            <div class="la-top">
+              <span class="la-dot"></span>
+              <span>LUMA · NOW PLAYING</span>
+            </div>
+            <div class="la-title">"slow tuesday, listen to the rain"</div>
+            <div class="la-waveform">
+              <span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span><span></span>
+            </div>
+          </div>
+          <div class="lock-widget">
+            <div class="widget-label">WIDGET · VIBES LIT</div>
+            <div class="widget-vibe">2 rooms still warm from this afternoon</div>
+            <div class="widget-row">
+              <span>●</span><span>"insomnia room"</span>
+              <span style="margin-left: auto;">2h 14m</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="wf-tag">L0 · AMBIENT LAYER</div>
+      <div class="wf-title"><span class="italic">The app before the app</span></div>
+      <div class="wf-caption">锁屏 + Live Activity + Widget。推荐首先是"存在感"——你的 vibes 像被点亮的蜡烛仍在你的设备上燃烧。不用打开，已经在场。</div>
+    </div>
+
+    <!-- Wireframe 2: L1 Now Entry -->
+    <div class="wf-cell">
+      <div class="phone">
+        <div class="status-bar">
+          <span>9:43</span>
+          <span>● ●●●</span>
+        </div>
+        <div class="screen screen-now">
+          <div class="now-top">
+            <span>TUE 9:43<span class="dot"></span>LIGHT RAIN · 11°</span>
+            <span>HRV ⌒ 58</span>
+          </div>
+          <div class="now-center">
+            <div class="now-vibe-ring">
+              <div class="now-vibe-text">
+                <div class="now-vibe-label">LUMA MADE THIS</div>
+                <div class="now-vibe-title">"a room for<br>rain and staying in"</div>
+              </div>
+            </div>
+          </div>
+          <div class="now-hints">
+            <div class="hint"><span class="key">TAP</span> peek 3s</div>
+            <div class="hint"><span class="key">HOLD</span> enter</div>
+            <div class="hint"><span class="key">← →</span> streams</div>
+            <div class="hint"><span class="key">↓</span> talk to luma</div>
+          </div>
+        </div>
+      </div>
+      <div class="wf-tag">L1 · NOW ENTRY</div>
+      <div class="wf-title"><span class="italic">Opens inside a vibe</span></div>
+      <div class="wf-caption">App 打开即进入一个 vibe（不是菜单）。环/光晕本身就是当前 vibe 的 preview，tap peek 3 秒响应式预览、hold 全屏栖居。所有手势可被发现。</div>
+    </div>
+
+    <!-- Wireframe 3: L2 Streams -->
+    <div class="wf-cell">
+      <div class="phone">
+        <div class="status-bar">
+          <span>9:44</span>
+          <span>● ●●●</span>
+        </div>
+        <div class="screen screen-streams">
+          <div class="streams-top">
+            <div class="streams-title"><span style="color: var(--accent-amber);">◉</span> Circle</div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--ink-secondary); letter-spacing: 0.15em;">5 LIT</span>
+          </div>
+          <div class="streams-nav">
+            <span class="stream-tab">▲ ARC</span>
+            <span class="stream-tab active">◉ CIRCLE</span>
+            <span class="stream-tab">◎ RESONANCE</span>
+            <span class="stream-tab">✸ RUPTURE</span>
+            <span class="stream-tab">⟲ PALACE</span>
+          </div>
+          <div class="stream-strip">
+            <div class="stream-strip-label">
+              <span>NOW INHABITED BY</span>
+              <span class="count">3 FRIENDS</span>
+            </div>
+            <div class="stream-rail">
+              <div class="vibe-card friend vc-1">
+                <div class="vibe-card-meta">MAYA ◦ 24M</div>
+                <div class="vibe-card-label">"golden hour grief"</div>
+              </div>
+              <div class="vibe-card friend vc-3">
+                <div class="vibe-card-meta">SAM ◦ 1H</div>
+                <div class="vibe-card-label">"deep work forest"</div>
+              </div>
+              <div class="vibe-card friend vc-4">
+                <div class="vibe-card-meta">LI ◦ LIVE</div>
+                <div class="vibe-card-label">"a very long monday"</div>
+              </div>
+            </div>
+          </div>
+          <div class="stream-strip">
+            <div class="stream-strip-label">
+              <span>SENT TO YOU TODAY</span>
+              <span class="count">2 GIFTS</span>
+            </div>
+            <div class="stream-rail">
+              <div class="vibe-card vc-2">
+                <div class="vibe-card-meta">FROM MAYA</div>
+                <div class="vibe-card-label">"this made me<br>think of you"</div>
+              </div>
+              <div class="vibe-card vc-5">
+                <div class="vibe-card-meta">FROM SAM</div>
+                <div class="vibe-card-label">"for your<br>commute home"</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="wf-tag">L2 · STREAMS</div>
+      <div class="wf-title"><span class="italic">Five rails, not one feed</span></div>
+      <div class="wf-caption">侧向穿行 5 条主题流。每条流不是按"新鲜度"排序——是按"情感距离"。Circle 流最特殊：显示朋友此刻真正栖居的 vibe，绿点 = 可 drop in。</div>
+    </div>
+
+    <!-- Wireframe 4: L3 Cosmos -->
+    <div class="wf-cell">
+      <div class="phone">
+        <div class="status-bar">
+          <span>9:46</span>
+          <span>● ●●●</span>
+        </div>
+        <div class="screen screen-cosmos">
+          <div class="cosmos-top">◎ COSMOS · 2-FINGER PINCH TO DIVE</div>
+          <div class="cosmos-axes">
+            <div class="cosmos-axis-v"></div>
+            <div class="cosmos-axis-h"></div>
+            <span class="axis-label top">INTENSE</span>
+            <span class="axis-label bottom">CALM</span>
+            <span class="axis-label left">INWARD</span>
+            <span class="axis-label right">OUTWARD</span>
+
+            <div class="star s1"></div>
+            <div class="star s2"></div>
+            <div class="star s3"></div>
+            <div class="star s4"></div>
+            <div class="star s5"></div>
+            <div class="star s6"></div>
+            <div class="star s7"></div>
+            <div class="star s8"></div>
+            <div class="star s9"></div>
+            <div class="star s10"></div>
+
+            <div class="trail"></div>
+            <div class="you-star"></div>
+            <div class="you-label">YOU · HERE</div>
+          </div>
+          <div class="cosmos-bottom">"you've been drifting inward<br>& calm for three days"</div>
+        </div>
+      </div>
+      <div class="wf-tag">L3 · COSMOS</div>
+      <div class="wf-title"><span class="italic">A map of moods</span></div>
+      <div class="wf-caption">情绪—美学坐标系中的星座图。你的位置被标出，虚线圆是过去三天的轨迹。橙色 = 你的标记、玫瑰 = 朋友的 vibe、青绿 = 被推送的"锚点"。Luma 在底部解读。</div>
+    </div>
+
+    <!-- Wireframe 5: L4 Dialogue -->
+    <div class="wf-cell">
+      <div class="phone">
+        <div class="status-bar">
+          <span>9:48</span>
+          <span>● ●●●</span>
+        </div>
+        <div class="screen screen-luma">
+          <div class="luma-header">
+            <div class="luma-avatar"></div>
+            <div class="luma-name">Luma</div>
+            <div class="luma-status">LISTENING</div>
+          </div>
+          <div class="luma-msgs">
+            <div class="msg msg-luma">
+              "you've inhabited three melancholic rooms this week. not judging — just noticing. want to lean in, or step out?"
+            </div>
+            <div class="msg msg-user">lean in. but softer</div>
+            <div class="msg msg-luma">
+              "softer like an old sweater, or softer like ocean at 5am?"
+              <div class="msg-why">WHY ASK →</div>
+            </div>
+            <div class="suggestion">
+              <div class="suggestion-swatch"></div>
+              <div class="suggestion-info">
+                <div class="suggestion-title">"sweater at the kitchen window"</div>
+                <div class="suggestion-meta">AMBER · STRINGS · 32°</div>
+              </div>
+              <div class="enter-btn">ENTER</div>
+            </div>
+          </div>
+          <div class="luma-input">describe what you're feeling...</div>
+        </div>
+      </div>
+      <div class="wf-tag">L4 · DIALOGUE</div>
+      <div class="wf-title"><span class="italic">Recommendation as conversation</span></div>
+      <div class="wf-caption">下拉即召唤 Luma。Luma 反问而非直接生成——"softer like old sweater, or softer like ocean at 5am?"——把"调参"变成"共感"。<span style="color: var(--accent-amber); font-family: JetBrains Mono, monospace; font-size: 10px;">WHY</span> 按钮展示其推理。</div>
+    </div>
+
+    <!-- Wireframe 6: Party / Co-presence -->
+    <div class="wf-cell">
+      <div class="phone">
+        <div class="status-bar">
+          <span>10:23</span>
+          <span>● ●●●</span>
+        </div>
+        <div class="screen screen-party">
+          <div class="party-label">PARTY MODE · AIRPLAY ACTIVE</div>
+          <div class="party-title">"Brooklyn loft,<br>a very slow rain"</div>
+
+          <div class="party-vibe-preview">
+            <div class="preview-label">LIVE ON LIVING ROOM TV</div>
+            <div class="preview-qr">
+              <div></div><div></div><div></div><div></div><div></div>
+              <div></div><div></div><div></div><div></div><div></div>
+              <div></div><div></div><div></div><div></div><div></div>
+              <div></div><div></div><div></div><div></div><div></div>
+              <div></div><div></div><div></div><div></div><div></div>
+            </div>
+          </div>
+
+          <div class="party-participants">
+            <div class="pp-label">4 CO-CREATING THIS ROOM</div>
+            <div class="pp-avatars">
+              <div class="pp-avatar pp-1"></div>
+              <div class="pp-avatar pp-2"></div>
+              <div class="pp-avatar pp-3"></div>
+              <div class="pp-avatar pp-4"></div>
+              <div class="pp-avatar pp-5">+2</div>
+            </div>
+            <div class="pp-msg"><span class="who">Maya just said:</span>"less blue, more gold"</div>
+          </div>
+
+          <div class="party-ctrls">
+            <div class="party-btn">↗ SEND</div>
+            <div class="party-btn primary">CRYSTALLIZE</div>
+            <div class="party-btn">⟲ SAVE</div>
+          </div>
+        </div>
+      </div>
+      <div class="wf-tag">PARTY · CO-PRESENCE</div>
+      <div class="wf-title"><span class="italic">A room many people build</span></div>
+      <div class="wf-caption">AirPlay 检测到大屏 → Party Mode 自动切换。手机变遥控器 + 多用户 Luma 输入。在场所有人扫码加入，各自提 remix 请求，大屏上 vibe 实时演化。<strong style="color: var(--ink-primary); font-weight: 400;">Crystallize</strong> 封存此刻为共同记忆。</div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 4: GESTURES -->
+<section class="section container">
+  <div class="section-label">
+    <span class="num">§ 04</span>
+    <span>Interaction Vocabulary</span>
+    <span class="bar"></span>
+    <span>08 Gestures</span>
+  </div>
+  <h2 class="section-heading">
+    The alphabet of <span class="italic">inhabitation</span>.
+  </h2>
+  <p class="section-kicker">
+    Traditional apps teach <em>tap tap scroll</em>. Vibing Art has a richer grammar — because the object is a space, not a card.
+  </p>
+
+  <div class="gestures-grid">
+    <div class="gesture-cell">
+      <div class="gesture-icon">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8" stroke-dasharray="2 3"/></svg>
+      </div>
+      <div>
+        <div class="gesture-mono">TAP</div>
+        <div class="gesture-name">Peek</div>
+      </div>
+      <div class="gesture-effect">3 秒响应式预览。vibe 用 device motion / mic / camera 实时回应你拿着的手机——预览本身就是 vibe 的微缩版。</div>
+    </div>
+
+    <div class="gesture-cell">
+      <div class="gesture-icon">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="9"/></svg>
+      </div>
+      <div>
+        <div class="gesture-mono">HOLD</div>
+        <div class="gesture-name">Enter</div>
+      </div>
+      <div class="gesture-effect">全屏栖居。UI fade out，vibe fill screen。退出手势：上滑、或自然离开（app 进入 Live Activity 继续低强度运行）。</div>
+    </div>
+
+    <div class="gesture-cell">
+      <div class="gesture-icon">
+        <svg viewBox="0 0 24 24"><path d="M8 8 L4 4 M16 8 L20 4 M8 16 L4 20 M16 16 L20 20"/></svg>
+      </div>
+      <div>
+        <div class="gesture-mono">PINCH OUT</div>
+        <div class="gesture-name">Dissect</div>
+      </div>
+      <div class="gesture-effect">进入 vibe 的结构视图——Luma 对话历史、参数轴、音源层。这是 remix 的入口，也是"看见黑盒"的动作。</div>
+    </div>
+
+    <div class="gesture-cell">
+      <div class="gesture-icon">
+        <svg viewBox="0 0 24 24"><path d="M4 12 L20 12"/><path d="M4 12 L8 8"/><path d="M4 12 L8 16"/></svg>
+      </div>
+      <div>
+        <div class="gesture-mono">PULL DOWN</div>
+        <div class="gesture-name">Summon</div>
+      </div>
+      <div class="gesture-effect">任何位置下拉召唤 Luma。Luma 是全局的——不是单独 tab，是可被任何时刻召唤的对话者。</div>
+    </div>
+
+    <div class="gesture-cell">
+      <div class="gesture-icon">
+        <svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="2"/><circle cx="9" cy="9" r="5"/><circle cx="15" cy="15" r="2"/></svg>
+      </div>
+      <div>
+        <div class="gesture-mono">DOUBLE-TAP</div>
+        <div class="gesture-name">Crystallize</div>
+      </div>
+      <div class="gesture-effect">把当前瞬间的 vibe 状态凝固为快照——比 like 更深的正向信号。你留下的不是 heart，是对未来自己的信。</div>
+    </div>
+
+    <div class="gesture-cell">
+      <div class="gesture-icon">
+        <svg viewBox="0 0 24 24"><path d="M4 12 L20 12"/><path d="M16 8 L20 12 L16 16"/><path d="M8 6 Q4 12 8 18"/></svg>
+      </div>
+      <div>
+        <div class="gesture-mono">TWO-FINGER OUT</div>
+        <div class="gesture-name">Gift</div>
+      </div>
+      <div class="gesture-effect">发送 vibe 作为礼物。附带一个可选短语——"this made me think of you"。接收方打开即进入，而非观看。</div>
+    </div>
+
+    <div class="gesture-cell">
+      <div class="gesture-icon">
+        <svg viewBox="0 0 24 24"><path d="M6 6 L18 18"/><path d="M18 6 L6 18"/><circle cx="12" cy="12" r="9" stroke-dasharray="1 2"/></svg>
+      </div>
+      <div>
+        <div class="gesture-mono">SHAKE</div>
+        <div class="gesture-name">Rupture</div>
+      </div>
+      <div class="gesture-effect">摇动 = "show me something I wouldn't have picked"。反 filter bubble 的硬手势。Luma 主动破局。</div>
+    </div>
+
+    <div class="gesture-cell">
+      <div class="gesture-icon">
+        <svg viewBox="0 0 24 24"><rect x="7" y="5" width="10" height="14" rx="2"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></svg>
+      </div>
+      <div>
+        <div class="gesture-mono">COVER CAMERA</div>
+        <div class="gesture-name">Blind Mode</div>
+      </div>
+      <div class="gesture-effect">遮住前置摄像头 = 进入纯音频 vibe 模式。视觉消失，只剩声景。给睡前、冥想、闭眼的时刻。</div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 5: USER JOURNEYS -->
+<section class="section container">
+  <div class="section-label">
+    <span class="num">§ 05</span>
+    <span>User Journeys</span>
+    <span class="bar"></span>
+    <span>03 Personas</span>
+  </div>
+  <h2 class="section-heading">
+    Three arcs. <span class="italic">One product.</span>
+  </h2>
+  <p class="section-kicker">
+    The same architecture serves a first-timer, a daily inhabitant, and a party host — because the layers are depths, not pages.
+  </p>
+
+  <div class="journeys-container">
+    <!-- Journey 1 -->
+    <div class="journey">
+      <div class="journey-header">
+        <div>
+          <div class="journey-num">Journey 01</div>
+          <div class="journey-persona">Maya · first-time user · Tuesday 11pm</div>
+        </div>
+        <div>
+          <h3 class="journey-title">"I downloaded this because my friend sent me <span class="italic">a room</span>."</h3>
+          <p class="journey-desc">Maya 收到朋友发来的 <span class="mono" style="color: var(--accent-amber); font-size: 13px;">vibing.art/v/8kz2</span> 链接。她从未用过这个 App。点击链接的第一秒决定了一切。</p>
+        </div>
+      </div>
+
+      <div class="journey-steps">
+        <div class="step">
+          <div class="step-num">STEP 01 · GIFT LINK</div>
+          <div class="step-trigger">"点进去先看看是什么"</div>
+          <div class="step-system">链接在浏览器里用 WebGL 直接渲染这个 vibe——她<strong style="color: var(--ink-primary); font-weight: 400;">不需要装 App 就已经在 vibe 里</strong>。页面顶部一行小字： <span class="call">"maya sent you this at 10:47pm"</span>。底部浮动按钮："open deeper in app"。</div>
+        </div>
+        <div class="step">
+          <div class="step-num">STEP 02 · LOW-FRICTION ONBOARD</div>
+          <div class="step-trigger">"下载之后，我已经在那个 vibe 里"</div>
+          <div class="step-system">App 启动时，<strong style="color: var(--ink-primary); font-weight: 400;">不是 splash screen + tutorial</strong>，是直接接管浏览器里那个 vibe——Maya 感觉她"走了进去"。onboarding 是隐形的：3 个问题悄悄 inline 在 Luma 的第一轮对话里。</div>
+        </div>
+        <div class="step">
+          <div class="step-num">STEP 03 · FIRST DIALOGUE</div>
+          <div class="step-trigger">Luma: "stay here, or shall i make one just for you?"</div>
+          <div class="step-system">Maya 说"for me"。Luma 反问："what did today feel like in one word?" — 这是 Luma 的第一次 calibration。Maya 打字："drained."</div>
+        </div>
+        <div class="step">
+          <div class="step-num">STEP 04 · FIRST INHABITATION</div>
+          <div class="step-trigger">"我就...躺着，看了 40 分钟"</div>
+          <div class="step-system">Luma 生成的第一个 vibe 叫 <em style="color: var(--ink-primary);">"draining, but soft"</em>。Maya hold 进入全屏。<strong style="color: var(--ink-primary); font-weight: 400;">没有 next video 按钮</strong>。屏幕在她注视下慢慢演化。她睡着了。</div>
+        </div>
+        <div class="step">
+          <div class="step-num">STEP 05 · MORNING RITUAL</div>
+          <div class="step-trigger">早上 7:15，Luma 主动</div>
+          <div class="step-system">锁屏 Live Activity：<em style="color: var(--ink-primary);">"how did you sleep in the room i made you?"</em>——这是 Luma 的日常仪式邀请。不是 push notification，是 Live Activity 式低打扰呼吸。Maya 在通勤路上回一句话，今日的 vibe 由此孕育。</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Journey 2 -->
+    <div class="journey">
+      <div class="journey-header">
+        <div>
+          <div class="journey-num">Journey 02</div>
+          <div class="journey-persona">Sam · daily user · Thursday 2pm</div>
+        </div>
+        <div>
+          <h3 class="journey-title">"I'm in deep work, and I <span class="italic">don't want to stop</span>."</h3>
+          <p class="journey-desc">Sam 每天上班时都开着 Vibing Art 做 background。她的诉求不是"被推荐新内容"——是"保持我现在这个 flow 状态"。</p>
+        </div>
+      </div>
+
+      <div class="journey-steps">
+        <div class="step">
+          <div class="step-num">STEP 01 · PERSISTENT ROOM</div>
+          <div class="step-trigger">早上 9 点启动 <em style="color: var(--ink-primary);">"deep work forest"</em></div>
+          <div class="step-system">Sam 的日常仪式：打开 App → L1 Now 已经显示这个 vibe（因为是她的时间习惯）→ hold → 全屏 → 切到 split-screen 和 VS Code 并排。<strong style="color: var(--ink-primary); font-weight: 400;">这个 vibe 会保持 5 小时不中断</strong>。</div>
+        </div>
+        <div class="step">
+          <div class="step-num">STEP 02 · AMBIENT ADAPTATION</div>
+          <div class="step-trigger">无感的强度曲线</div>
+          <div class="step-system">vibe 依据 Sam 的生物节律无声调整：早上 9:30 代码节奏轻盈时 vibe 轻盈；11 点她明显卡壳（打字速度监测 + 心率变化）时 vibe 自动降到几乎静默——<strong style="color: var(--ink-primary); font-weight: 400;">它不是独立于她的，它在听她</strong>。</div>
+        </div>
+        <div class="step">
+          <div class="step-num">STEP 03 · GENTLE INTERRUPT</div>
+          <div class="step-trigger">下午 1:30 Luma Live Activity</div>
+          <div class="step-system">Live Activity 低强度提示：<em style="color: var(--ink-primary);">"you've been in this for 4h. stretch?"</em>。不是强制，是呼吸式提醒。Sam 忽略。Luma 不再打扰。下次她主动下拉时，Luma 说：<span class="call">"ok, noted. you like long sessions."</span></div>
+        </div>
+        <div class="step">
+          <div class="step-num">STEP 04 · SHARED PRESENCE</div>
+          <div class="step-trigger">Maya 的 dot 出现在同一 vibe</div>
+          <div class="step-system">Sam 看到 L2 Circle 流顶部：Maya 10 分钟前也进入了 <em style="color: var(--ink-primary);">"deep work forest"</em>——异地同在感。没有聊天，没有通知。只是<strong style="color: var(--ink-primary); font-weight: 400;">知道有人在同一个空间里</strong>。Sam 感到被陪伴。</div>
+        </div>
+        <div class="step">
+          <div class="step-num">STEP 05 · EVENING FORK</div>
+          <div class="step-trigger">下班后双击 = crystallize</div>
+          <div class="step-system">Sam 把今天 2:15pm 那个心流高峰凝固为一个 <span class="call">.vibe snapshot</span>。文件名被 Luma 自动起名：<em style="color: var(--ink-primary);">"the afternoon i solved it"</em>。它被送去她的记忆宫殿 Palace 流。三个月后再次卡壳时，她会回去。</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Journey 3 -->
+    <div class="journey">
+      <div class="journey-header">
+        <div>
+          <div class="journey-num">Journey 03</div>
+          <div class="journey-persona">Li · party host · Saturday 11pm</div>
+        </div>
+        <div>
+          <h3 class="journey-title">"Eight people in my living room — the vibe <span class="italic">is what we all chose together</span>."</h3>
+          <p class="journey-desc">Li 办家庭派对，投屏到客厅电视。这是 Vibing Art 的 k-factor 引擎——线下群体同时使用，retention 比孤立下载高 3 倍。</p>
+        </div>
+      </div>
+
+      <div class="journey-steps">
+        <div class="step">
+          <div class="step-num">STEP 01 · DETECT BIG SCREEN</div>
+          <div class="step-trigger">AirPlay 自动触发 Party Mode</div>
+          <div class="step-system">Li 的 iPhone 检测到 AppleTV → App 自动提示 <span class="call">"party mode?"</span>。一键启动后：电视显示当前 vibe 全屏 + QR 码在角落，手机变遥控器/Luma 输入端。</div>
+        </div>
+        <div class="step">
+          <div class="step-num">STEP 02 · FRICTIONLESS JOIN</div>
+          <div class="step-trigger">朋友扫码 → 不用装 App</div>
+          <div class="step-system">客厅里 8 个朋友，其中 5 个没装 App。他们扫电视上的 QR → 浏览器打开 <span class="call">vibing.art/room/xkz</span> → 直接看到一个<strong style="color: var(--ink-primary); font-weight: 400;">与 Luma 的共享聊天框</strong>。没有账号门槛。</div>
+        </div>
+        <div class="step">
+          <div class="step-num">STEP 03 · COLLECTIVE AGENCY</div>
+          <div class="step-trigger">多人同时向 Luma 提议</div>
+          <div class="step-system">Maya: "less blue more gold" → Sam: "bring bass" → Li: "feel like 3am in tokyo" → <strong style="color: var(--ink-primary); font-weight: 400;">Luma 不是单纯应答，是在几个提议里找和弦</strong>——它在大屏上说"ok, tokyo-gold, bass rising"，然后演化。这是 aippy/TikTok 都没有的社交原语。</div>
+        </div>
+        <div class="step">
+          <div class="step-num">STEP 04 · CRYSTALLIZE THE NIGHT</div>
+          <div class="step-trigger">11:47pm 凝固高光</div>
+          <div class="step-system">Li 双击 = 此刻被凝固为 <span class="call">.vibe</span> 文件，自动起名 <em style="color: var(--ink-primary);">"saturday, 8 people, one room"</em>。文件里保存了全部 8 人的对话、参数轨迹、和此刻的渲染状态——它是一张<strong style="color: var(--ink-primary); font-weight: 400;">集体记忆的照片</strong>。</div>
+        </div>
+        <div class="step">
+          <div class="step-num">STEP 05 · VIRAL RETENTION LOOP</div>
+          <div class="step-trigger">第二天每个人收到这个 vibe</div>
+          <div class="step-system">次日中午，全部 8 人（包括没装 App 的）收到 iMessage：<em style="color: var(--ink-primary);">"li shared a room from last night"</em>。点开 → 浏览器重演那个 vibe → 底部按钮 <span class="call">"open deeper in app"</span>。k-factor > 1 的机制就在这里完成闭环——<strong style="color: var(--ink-primary); font-weight: 400;">每场派对是一次 high-fidelity distribution event</strong>。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 6: SIGNAL ARCHITECTURE -->
+<section class="section container">
+  <div class="section-label">
+    <span class="num">§ 06</span>
+    <span>Signal Stack</span>
+    <span class="bar"></span>
+    <span>Input → Model → Surface</span>
+  </div>
+  <h2 class="section-heading">
+    The recommendation engine is <span class="italic">embodied</span>.
+  </h2>
+  <p class="section-kicker">
+    TikTok 的引擎只知道"你看了什么"。Vibing Art 的引擎还知道你的心率、呼吸、环境光、睡眠债、昨晚谁给你发了什么——因为 vibe 是情绪的语言，身体的信号是母语。
+  </p>
+
+  <div class="signal-architecture">
+    <!-- INPUT -->
+    <div class="signal-group">
+      <div class="signal-group-label">INPUT · 07 SIGNAL CLASSES</div>
+      <div class="signal-group-title">Signals</div>
+      <ul class="signal-list">
+        <li><strong>Context</strong> — 时间、天气、季节、当地日落、光照</li>
+        <li><strong>Embodiment</strong> <em style="color: var(--accent-amber); font-style: italic;">(HealthKit, opt-in)</em> — HRV、呼吸节律、睡眠债、活动强度</li>
+        <li><strong>Environment</strong> <em style="color: var(--accent-amber); font-style: italic;">(mic + camera, opt-in)</em> — 环境音分贝、房间光线、独处/群体</li>
+        <li><strong>Behavior</strong> — 栖居时长、remix 率、crystallize 率、返回频率、放弃模式</li>
+        <li><strong>Expression</strong> — Luma 对话、情绪词汇、明说需求</li>
+        <li><strong>Social</strong> — Circle 活跃、送礼轨迹、共同栖居</li>
+        <li><strong>Trajectory</strong> — 近 7 天情绪走势、习惯偏离、仪式锚点</li>
+      </ul>
+    </div>
+
+    <div class="signal-arrow">→</div>
+
+    <!-- MODEL -->
+    <div class="signal-group model-center">
+      <div class="signal-group-label">MODEL · LUMA</div>
+      <div class="signal-group-title">Agent</div>
+      <ul class="signal-list">
+        <li><strong>Persistent identity</strong> — 记得你两周前说过"3am 的孤独"是什么样</li>
+        <li><strong>Aesthetic fingerprint</strong> — 你的色彩偏好、音频纹理、运动节奏向量化</li>
+        <li><strong>Emotional vocabulary</strong> — 你用"drained / tender / brittle"而非"sad"——Luma 学你</li>
+        <li><strong>Relational graph</strong> — 谁给你发过 vibe、你们的审美交集、不说话的共情</li>
+        <li><strong>Wellbeing watcher</strong> — 模式监测：连续 7 天栖居"dark vibes" → 提议一次 rupture</li>
+        <li><strong>Explainability</strong> — 每个推荐有 <span class="call">why</span>——黑盒的根本性反转</li>
+        <li><strong>On-device privacy</strong> — 身体信号不离开你的设备</li>
+      </ul>
+    </div>
+
+    <div class="signal-arrow">→</div>
+
+    <!-- OUTPUT -->
+    <div class="signal-group">
+      <div class="signal-group-label">OUTPUT · 05 SURFACES</div>
+      <div class="signal-group-title">Surfaces</div>
+      <ul class="signal-list">
+        <li><strong>Primary Now</strong> — L1 的"当下之 vibe"（一个，不是十个）</li>
+        <li><strong>Five Streams</strong> — Arc · Circle · Resonance · Rupture · Palace</li>
+        <li><strong>Cosmos</strong> — 情绪—美学坐标系的星座</li>
+        <li><strong>Ambient Layer</strong> — Widget / Live Activity / Lock Screen</li>
+        <li><strong>Ritual Prompts</strong> — 晨间/晚间对话主动邀请</li>
+      </ul>
+      <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); font-family: 'Fraunces', serif; font-style: italic; font-size: 13px; color: var(--ink-secondary); line-height: 1.5;">
+        "The recommendation is not<br>a list. It's a <span style="color: var(--accent-amber);">breath</span>."
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- MANIFESTO -->
+<section class="section container manifesto">
+  <div class="section-label">
+    <span class="num">§ 07</span>
+    <span>Design Principles</span>
+    <span class="bar"></span>
+    <span>Ten Commitments</span>
+  </div>
+  <h2 class="manifesto-title">
+    Ten things we<br>will <span class="italic">not build</span>.
+  </h2>
+
+  <div class="principles">
+    <div class="principle">
+      <div class="principle-num">01</div>
+      <div class="principle-text">No infinite scroll. <em>Streams end.</em> Depth replaces breadth.</div>
+    </div>
+    <div class="principle">
+      <div class="principle-num">02</div>
+      <div class="principle-text">No likes, no comments, no follow counts. <em>Gifts replace likes.</em></div>
+    </div>
+    <div class="principle">
+      <div class="principle-num">03</div>
+      <div class="principle-text">No dark patterns of retention. The app <em>reminds you to leave</em> after deep sessions.</div>
+    </div>
+    <div class="principle">
+      <div class="principle-num">04</div>
+      <div class="principle-text">No black-box algorithm. Every recommendation has a <em>why</em> button.</div>
+    </div>
+    <div class="principle">
+      <div class="principle-num">05</div>
+      <div class="principle-text">No "next video" compulsion. Vibes don't <em>end</em> — you leave them.</div>
+    </div>
+    <div class="principle">
+      <div class="principle-num">06</div>
+      <div class="principle-text">No generic onboarding. First vibe arrives <em>as a gift from a friend</em>.</div>
+    </div>
+    <div class="principle">
+      <div class="principle-num">07</div>
+      <div class="principle-text">No biometric data leaves device. <em>Embodiment is private</em>.</div>
+    </div>
+    <div class="principle">
+      <div class="principle-num">08</div>
+      <div class="principle-text">No filter bubble. The <em>Rupture</em> stream is a first-class citizen.</div>
+    </div>
+    <div class="principle">
+      <div class="principle-num">09</div>
+      <div class="principle-text">No screen-time metrics. We measure <em>moments crystallized</em>.</div>
+    </div>
+    <div class="principle">
+      <div class="principle-num">10</div>
+      <div class="principle-text">No content. <em>Only spaces you can live in.</em></div>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="brand">vibing.art</div>
+  <div>Recommendation Architecture · v0.1 · Apr 2026</div>
+  <div>A field, not a feed.</div>
+</footer>
+
+</body>
+</html>
