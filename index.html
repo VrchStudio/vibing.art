@@ -141,6 +141,30 @@
       color: rgba(255, 255, 255, 0.25);
     }
 
+    .testflight-link {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      isolation: isolate;
+      overflow: hidden;
+      pointer-events: auto;
+      margin-top: 20px;
+      min-width: 210px;
+      min-height: 48px;
+      padding: 13px 24px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.01875);
+      color: rgba(255, 255, 255, 0.705);
+      font-size: 0.76rem;
+      font-weight: 600;
+      letter-spacing: 0.09em;
+      text-decoration: none;
+      -webkit-backdrop-filter: blur(22px) saturate(180%);
+      backdrop-filter: blur(22px) saturate(180%);
+    }
+
     .footer {
       position: fixed;
       bottom: 0;
@@ -191,6 +215,7 @@
       and movement, <span class="pocket">right in your pocket</span>
     </p>
     <div class="coming-soon">Coming Soon to iOS</div>
+    <a class="testflight-link" href="testflight.html"><span>Join TestFlight Beta</span></a>
   </div>
 
   <footer class="footer">
